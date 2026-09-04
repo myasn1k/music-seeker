@@ -127,7 +127,7 @@ Built with FastAPI + vanilla JS. Runs as a single Docker container. Native apps 
 ### 1. Clone
 
 ```bash
-git clone https://github.com/lucashanak/music-seeker.git
+git clone https://github.com/myasn1k/music-seeker.git
 cd music-seeker
 ```
 

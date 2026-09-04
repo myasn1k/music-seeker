@@ -79,6 +79,8 @@ jobs:
           VERSION="${{ needs.version.outputs.version }}"
           sed -i.bak "s/\"version\": \"1.0.0\"/\"version\": \"${VERSION}\"/" desktop/src-tauri/tauri.conf.json
           sed -i.bak "s/__APP_VERSION__/${VERSION}/" desktop/src-tauri/tauri.conf.json
+          sed -i.bak "s/__APP_VERSION__/${VERSION}/g" desktop/dist/index.html
+          rm -f desktop/dist/index.html.bak
           rm -f desktop/src-tauri/tauri.conf.json.bak
           echo "Building version: $VERSION"
 
@@ -167,6 +169,7 @@ jobs:
           VERSION="${{ needs.version.outputs.version }}"
           sed -i "s/\"version\": \"1.0.0\"/\"version\": \"${VERSION}\"/" desktop/src-tauri/tauri.conf.json
           sed -i "s/__APP_VERSION__/${VERSION}/" desktop/src-tauri/tauri.conf.json
+          sed -i "s/__APP_VERSION__/${VERSION}/g" desktop/dist/index.html
           echo "Building version: $VERSION"
 
       - name: Setup Node
@@ -352,6 +355,7 @@ jobs:
           VERSION="${{ needs.version.outputs.version }}"
           sed -i "s/\"version\": \"1.0.0\"/\"version\": \"${VERSION}\"/" desktop/src-tauri/tauri.conf.json
           sed -i "s/__APP_VERSION__/${VERSION}/" desktop/src-tauri/tauri.conf.json
+          sed -i "s/__APP_VERSION__/${VERSION}/g" desktop/dist/index.html
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "Building version: $VERSION"
 
@@ -420,6 +424,7 @@ jobs:
 
           # Permissions
           MANIFEST="$GEN/app/src/main/AndroidManifest.xml"
+          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
           sed -i '/<application/i \
               <uses-permission android:name="android.permission.INTERNET" />\
               <uses-permission android:name="android.permission.RECORD_AUDIO" />\
@@ -509,6 +514,14 @@ jobs:
                           putExtra("position", positionMs)
                           putExtra("duration", durationMs)
                       })
+                  }
+
+                  @JavascriptInterface
+                  fun changeServer() {
+                      val webView = webViewRef?.get() ?: return
+                      webView.post {
+                          webView.loadUrl("http://tauri.localhost/index.html?reset_server=1")
+                      }
                   }
 
                   @JavascriptInterface

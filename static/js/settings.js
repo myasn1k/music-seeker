@@ -855,11 +855,11 @@ export async function loadFeedback() {
 
 async function _promoteFeedback(btn, id) {
   // Promotion is permanent and public: the description + screenshot get
-  // committed to github.com/lucashanak/music-seeker and stay in git history
+  // committed to github.com/myasn1k/music-seeker and stay in git history
   // even if the report/issue is later deleted. Confirm before firing.
   const ok = await showConfirmModal(
     'Publish to the public GitHub repo?',
-    'The description and any screenshot become permanently public at github.com/lucashanak/music-seeker and stay in git history even if the issue is deleted. Open the screenshot full-size and check it contains nothing private first.',
+    'The description and any screenshot become permanently public at github.com/myasn1k/music-seeker and stay in git history even if the issue is deleted. Open the screenshot full-size and check it contains nothing private first.',
     { okLabel: 'Publish', danger: true }
   );
   if (!ok) return;
@@ -1046,7 +1046,7 @@ export function init() {
   document.querySelectorAll('#desktopAppSection a[href*="/releases/"]').forEach(a => {
     a.addEventListener('click', async () => {
       try {
-        const res = await fetch('https://api.github.com/repos/lucashanak/music-seeker/releases/latest');
+        const res = await fetch('https://api.github.com/repos/myasn1k/music-seeker/releases/latest');
         if (res.ok) {
           const r = await res.json();
           localStorage.setItem('app_version', r.tag_name.replace(/^v/, ''));
@@ -1054,6 +1054,20 @@ export function init() {
       } catch(e) {}
     });
   });
+
+  // Change MusicSeeker server — native Android fork only
+  const changeServerBtn = $('#changeServerBtn');
+
+  if (
+    changeServerBtn &&
+    window.AndroidBridge &&
+    typeof window.AndroidBridge.changeServer === 'function'
+  ) {
+    changeServerBtn.style.display = '';
+    changeServerBtn.addEventListener('click', () => {
+      window.AndroidBridge.changeServer();
+    });
+  }
 
   // Refresh (cache only, keep login) — preserve app_version param
   $('#refreshCacheBtn').addEventListener('click', async () => {

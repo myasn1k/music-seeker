@@ -1096,6 +1096,15 @@
           Clear All &amp; Logout
         </button>
       </div>
+
+      <button
+        class="btn-save"
+        id="changeServerBtn"
+        type="button"
+        style="display:none;width:100%;margin-top:8px;background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);"
+      >
+        Change Server
+      </button>
       <p id="appCurrentVersion" style="font-size:11px;color:var(--text-muted);margin-top:8px;">
         macOS 10.15+ / Android 7.0+. Built with Tauri.
       </p>
@@ -1455,7 +1464,7 @@ function _formatBytes(bytes) {
 
 // Download app — direct on desktop, copy link on Android WebView
 function downloadApp(filename, btn) {
-  var url = 'https://github.com/lucashanak/music-seeker/releases/latest/download/' + filename;
+  var url = 'https://github.com/myasn1k/music-seeker/releases/latest/download/' + filename;
   var isAndroid = /android/i.test(navigator.userAgent);
   if (!isAndroid) {
     window.location.href = url;
@@ -1478,7 +1487,7 @@ try {
   var _inst = localStorage.getItem('app_installed_version') || localStorage.getItem('app_version');
   var _el = document.getElementById('appCurrentVersion');
   if (_el) _el.textContent = _inst ? 'v' + _inst + ' — checking...' : 'Checking...';
-  fetch('https://api.github.com/repos/lucashanak/music-seeker/releases/latest')
+  fetch('https://api.github.com/repos/myasn1k/music-seeker/releases/latest')
     .then(function(r) { return r.ok ? r.json() : Promise.reject('HTTP ' + r.status); })
     .then(function(rel) {
       var latest = rel.tag_name.replace(/^v/, '');
@@ -1508,7 +1517,7 @@ try {
           var link = document.getElementById('appUpdateLink');
           var isTauri = !!window.__TAURI__;
           var isAndroid = /android/i.test(navigator.userAgent);
-          var downloadUrl = 'https://github.com/lucashanak/music-seeker/releases/latest/download/' + file;
+          var downloadUrl = 'https://github.com/myasn1k/music-seeker/releases/latest/download/' + file;
           if (isTauri && !isAndroid) {
             // macOS Tauri — auto-install via Rust command
             link.textContent = 'Install';

@@ -4,7 +4,7 @@ MusicSeeker has native app wrappers built with [Tauri](https://tauri.app/) v2. T
 
 ## Download
 
-Download the latest version from **Settings > Native Apps** in MusicSeeker, or directly from [GitHub Releases](https://github.com/lucashanak/music-seeker/releases/latest).
+Download the latest version from **Settings > Native Apps** in MusicSeeker, or directly from [GitHub Releases](https://github.com/myasn1k/music-seeker/releases/latest).
 
 - **macOS**: `MusicSeeker.dmg` (requires macOS 10.15+)
 - **Android**: `MusicSeeker.apk` (requires Android 7.0+, arm64)
