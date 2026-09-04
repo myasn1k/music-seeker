@@ -1531,7 +1531,7 @@ try {
                 });
               return false;
             };
-          } else if (isTauri && isAndroid && window.AndroidBridge && window.AndroidBridge.installApk) {
+          } else if (isAndroid && window.AndroidBridge && window.AndroidBridge.installApk) {
             // Android Tauri — download + install via bridge
             link.textContent = 'Install';
             window._apkProgress = function(pct, msg) {
