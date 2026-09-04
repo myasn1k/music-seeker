@@ -16,6 +16,73 @@ NAVIDROME_PASSWORD = os.environ.get("NAVIDROME_PASSWORD", "")
 SLSKD_URL = os.environ.get("SLSKD_URL", "http://slskd:5030")
 SLSKD_API_KEY = os.environ.get("SLSKD_API_KEY", "")
 
+logger = logging.getLogger(__name__)
+
+REPLAYGAIN_ENABLED = os.environ.get(
+    "REPLAYGAIN_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
+
+REPLAYGAIN_TARGET_LUFS = os.environ.get(
+    "REPLAYGAIN_TARGET_LUFS", "-18"
+).strip() or "-18"
+
+_REPLAYGAIN_EXTS = {
+    ".flac", ".mp3", ".ogg", ".oga", ".opus",
+    ".m4a", ".wav", ".wv", ".ape", ".aiff", ".aif",
+}
+
+
+async def _apply_replaygain(file_path: str) -> bool:
+    """Write ReplayGain 2.0 track tags without modifying the audio stream."""
+    if not REPLAYGAIN_ENABLED:
+        return False
+
+    if not file_path or not os.path.isfile(file_path):
+        return False
+
+    if os.path.splitext(file_path)[1].lower() not in _REPLAYGAIN_EXTS:
+        return False
+
+    rsgain = shutil.which("rsgain")
+    if not rsgain:
+        logger.warning("ReplayGain enabled but rsgain is not installed")
+        return False
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            rsgain,
+            "custom",
+            "-s", "i",
+            "-l", REPLAYGAIN_TARGET_LUFS,
+            "-c", "p",
+            file_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+
+        try:
+            output, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            logger.warning("ReplayGain scan timed out for %s", file_path)
+            return False
+
+        if proc.returncode != 0:
+            logger.warning(
+                "ReplayGain scan failed for %s: %s",
+                file_path,
+                output.decode(errors="replace").strip(),
+            )
+            return False
+
+        logger.info("ReplayGain tags written: %s", file_path)
+        return True
+
+    except Exception as e:
+        logger.warning("ReplayGain scan failed for %s: %s", file_path, e)
+        return False
+
 
 def _check_quota(username: str) -> bool:
     """Check if user is within their disk quota. Returns True if OK to download."""
@@ -307,6 +374,9 @@ async def _download_track_ytdlp(artist: str, title: str, album: str, fmt: str,
     except Exception:
         pass  # BPM analysis is optional
 
+    # Write ReplayGain after all other metadata/tag operations are complete.
+    await _apply_replaygain(final_file)
+
     return True
 
 
@@ -504,6 +574,8 @@ async def _download_track_slskd(artist: str, title: str, album: str, username: s
                             await bpm_service.analyze_and_tag(dest, title, artist)
                         except Exception:
                             pass
+                        # Write ReplayGain after BPM/feature tags.
+                        await _apply_replaygain(dest)
                         return True
                     return False  # download succeeded but file not found locally
                 if any(s in state for s in ("Failed", "Cancelled", "Errored")):
