@@ -262,9 +262,241 @@ async def _download_cover(image_url: str, dest_path: str) -> bool:
         return False
 
 
+
+def _yt_norm(value: str) -> str:
+    """Normalize YouTube metadata for conservative track matching."""
+    import unicodedata
+    value = unicodedata.normalize("NFKD", value or "")
+    value = value.encode("ascii", "ignore").decode("ascii").lower()
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _yt_override_key(artist: str, title: str) -> str:
+    return f"{_yt_norm(artist)}|{_yt_norm(title)}"
+
+
+def _load_youtube_overrides() -> dict:
+    path = os.environ.get(
+        "YOUTUBE_OVERRIDES_FILE",
+        "/app/data/youtube_overrides.json",
+    )
+    try:
+        import json
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _track_duration_ms(track: dict) -> int:
+    """Read duration from common provider metadata shapes."""
+    for key in ("duration_ms", "durationMs"):
+        try:
+            value = track.get(key)
+            if value:
+                return int(float(value))
+        except Exception:
+            pass
+
+    try:
+        value = track.get("duration")
+        if value:
+            value = float(value)
+            # Provider APIs normally expose seconds here.
+            return int(value * 1000 if value < 10000 else value)
+    except Exception:
+        pass
+
+    return 0
+
+
+def _youtube_candidate_score(
+    candidate: dict,
+    artist: str,
+    title: str,
+    expected_duration_ms: int = 0,
+) -> float:
+    """Score one YouTube candidate against the requested recording."""
+    candidate_title = candidate.get("title", "") or ""
+    uploader = (
+        candidate.get("uploader", "")
+        or candidate.get("channel", "")
+        or ""
+    )
+
+    wanted_artist = _yt_norm(artist)
+    wanted_title = _yt_norm(title)
+
+    cand_title = _yt_norm(candidate_title)
+    cand_uploader = _yt_norm(uploader)
+    combined = f"{cand_title} {cand_uploader}"
+
+    score = 0.0
+
+    # Artist identity is very important for generic titles such as "Bene".
+    if wanted_artist:
+        if wanted_artist in combined:
+            score += 120
+        else:
+            score -= 120
+
+    # Exact title is ideal; containing the title is still useful because of
+    # suffixes such as "(Official Video)".
+    if cand_title == wanted_title:
+        score += 140
+    elif wanted_title and wanted_title in cand_title:
+        score += 90
+    else:
+        wanted_tokens = set(wanted_title.split())
+        candidate_tokens = set(cand_title.split())
+        if wanted_tokens:
+            overlap = len(wanted_tokens & candidate_tokens) / len(wanted_tokens)
+            score += overlap * 50
+
+    # Prefer canonical-looking uploads.
+    lower = candidate_title.lower()
+    uploader_lower = uploader.lower()
+
+    if "official audio" in lower:
+        score += 35
+    elif "official video" in lower:
+        score += 20
+
+    if "topic" in uploader_lower:
+        score += 25
+
+    # Penalize alternate versions unless that qualifier was explicitly
+    # requested in the source track title.
+    negative_terms = (
+        "live",
+        "remix",
+        "slowed",
+        "sped up",
+        "nightcore",
+        "karaoke",
+        "cover",
+        "instrumental",
+        "acoustic",
+        "radio edit",
+        "clean",
+        "censored",
+        "reverb",
+        "bass boosted",
+    )
+
+    requested_lower = title.lower()
+
+    for term in negative_terms:
+        if term in lower and term not in requested_lower:
+            score -= 180
+
+    # Duration is our strongest protection against wrong recordings.
+    try:
+        candidate_duration = float(candidate.get("duration") or 0)
+    except Exception:
+        candidate_duration = 0
+
+    if expected_duration_ms and candidate_duration:
+        expected_seconds = expected_duration_ms / 1000.0
+        diff = abs(candidate_duration - expected_seconds)
+
+        if diff <= 3:
+            score += 100
+        elif diff <= 8:
+            score += 70
+        elif diff <= 15:
+            score += 40
+        elif diff <= 30:
+            score -= 20
+        elif diff <= 60:
+            score -= 120
+        else:
+            score -= 300
+
+    return score
+
+
+async def _select_youtube_source(
+    artist: str,
+    title: str,
+    expected_duration_ms: int = 0,
+) -> str | None:
+    """Resolve a track to a specific YouTube video instead of ytsearch1."""
+    overrides = _load_youtube_overrides()
+    override = overrides.get(_yt_override_key(artist, title))
+
+    if isinstance(override, str) and override.strip():
+        return override.strip()
+
+    query = f"{artist} {title}".strip()
+
+    cmd = [
+        "yt-dlp",
+        "--dump-json",
+        "--skip-download",
+        "--no-warnings",
+        "--ignore-errors",
+        f"ytsearch10:{query}",
+    ]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+    stdout, _ = await proc.communicate()
+
+    if not stdout:
+        return None
+
+    import json
+
+    candidates = []
+
+    for raw_line in stdout.decode("utf-8", errors="replace").splitlines():
+        try:
+            candidate = json.loads(raw_line)
+        except Exception:
+            continue
+
+        if not isinstance(candidate, dict):
+            continue
+
+        score = _youtube_candidate_score(
+            candidate,
+            artist,
+            title,
+            expected_duration_ms,
+        )
+
+        candidates.append((score, candidate))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    score, best = candidates[0]
+
+    # Avoid confidently downloading an obviously bad candidate.
+    if score < 40:
+        return None
+
+    url = best.get("webpage_url")
+
+    if not url and best.get("id"):
+        url = f"https://www.youtube.com/watch?v={best['id']}"
+
+    return url
+
+
+
 async def _download_track_ytdlp(artist: str, title: str, album: str, fmt: str,
                                  image_url: str = "", is_podcast: bool = False,
-                                 username: str = "") -> bool:
+                                 username: str = "",
+                                 expected_duration_ms: int = 0) -> bool:
     """Download a single track via yt-dlp, then overwrite metadata from Spotify."""
     safe_artist = _sanitize(artist) or "Unknown Artist"
     safe_album = _sanitize(album) or "Unknown Album"
@@ -278,14 +510,23 @@ async def _download_track_ytdlp(artist: str, title: str, album: str, fmt: str,
     final_file = f"{out_dir}/{safe_title}.{fmt}"
 
     if is_podcast:
-        # For podcasts, use just the episode title — adding show name makes queries too specific
-        query = title
+        # Keep podcast matching simple for now.
+        source = f"ytsearch1:{title}"
     else:
-        query = f"{artist} {title}" if artist else title
+        source = await _select_youtube_source(
+            artist,
+            title,
+            expected_duration_ms,
+        )
 
-    # Step 1: Download audio with yt-dlp (no metadata from YouTube)
+        # Conservative fallback if candidate inspection itself fails.
+        if not source:
+            query = f"{artist} {title}" if artist else title
+            source = f"ytsearch1:{query}"
+
+    # Step 1: Download the exact selected source with yt-dlp.
     cmd = [
-        "yt-dlp", f"ytsearch1:{query}",
+        "yt-dlp", source,
         "-x",
         "--audio-format", fmt,
         "--audio-quality", "0",
@@ -439,7 +680,16 @@ async def _run_ytdlp(job: Job):
                         album = resolved.get("album", album)
             except Exception:
                 pass
-        ok = await _download_track_ytdlp(artist, name, album, job.format, image, is_podcast=is_podcast, username=job.username)
+        ok = await _download_track_ytdlp(
+            artist,
+            name,
+            album,
+            job.format,
+            image,
+            is_podcast=is_podcast,
+            username=job.username,
+            expected_duration_ms=_track_duration_ms(track),
+        )
         if not ok:
             failed.append(f"{artist} - {name}")
 
