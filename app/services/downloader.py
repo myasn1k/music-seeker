@@ -396,7 +396,7 @@ async def _run_ytdlp(job: Job):
         for track in tracks:
             name = track.get("name", "")
             artist = track.get("artist", "")
-            sid = await library.find_song_id(name, artist, album=album_filter)
+            sid = await library.find_song_id(name, artist, album=album_filter, strict=True)
             if sid:
                 already_have += 1
             else:
@@ -598,7 +598,7 @@ async def _run_slskd(job: Job):
     for track in tracks:
         name = track.get("name", "")
         artist = track.get("artist", "")
-        sid = await library.find_song_id(name, artist, album=album_filter)
+        sid = await library.find_song_id(name, artist, album=album_filter, strict=True)
         if sid:
             already_have += 1
         else:

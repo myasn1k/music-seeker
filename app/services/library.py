@@ -180,6 +180,16 @@ def _matches(a: str, b: str) -> bool:
     return na == nb or na in nb or nb in na
 
 
+def _strict_matches(a: str, b: str) -> bool:
+    """Strict normalized title match for download skip decisions.
+
+    Unlike _matches(), this does not accept substring matches such as
+    "Bene" matching "Va Bene Così".
+    """
+    na, nb = _normalize(a), _normalize(b)
+    return bool(na and nb and na == nb)
+
+
 def _artist_matches(lib_artist: str, search_artist: str) -> bool:
     """Fuzzy match: check if the primary artist name appears in the search artist string."""
     la = _normalize(lib_artist)
@@ -189,7 +199,8 @@ def _artist_matches(lib_artist: str, search_artist: str) -> bool:
     return la in sa or sa in la
 
 
-async def find_song_id(name: str, artist: str, album: str = "") -> str | None:
+async def find_song_id(name: str, artist: str, album: str = "",
+                       strict: bool = False) -> str | None:
     """Find a song's Navidrome ID by name and artist. If album is set, only match songs on that album."""
     if not NAVIDROME_PASSWORD:
         return None
@@ -199,7 +210,12 @@ async def find_song_id(name: str, artist: str, album: str = "") -> str | None:
         resp.raise_for_status()
         sr = resp.json().get("subsonic-response", {}).get("searchResult3", {})
         for song in sr.get("song", []):
-            if _matches(song.get("title", ""), name) and _artist_matches(song.get("artist", ""), artist):
+            title_match = (
+                _strict_matches(song.get("title", ""), name)
+                if strict
+                else _matches(song.get("title", ""), name)
+            )
+            if title_match and _artist_matches(song.get("artist", ""), artist):
                 if album and not _matches(song.get("album", ""), album):
                     continue
                 return song.get("id")
